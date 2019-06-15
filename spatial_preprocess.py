@@ -1,7 +1,7 @@
 import numpy as np
+import math
 from skimage.transform import resize
 import scipy.ndimage
-import math
 
 def foot_reshape(arr):
     # 88 + 3 zeros = 91 which is reshaped to 13 x 7
@@ -9,67 +9,67 @@ def foot_reshape(arr):
     
     return np.reshape(arr, (arr.shape[0], 13, 7))
 
-def process_footstep(arr):
-    arr = foot_reshape(arr)
-    Tmax = 1600
-
-    spatial = arr[:Tmax]
-
-    # Accumulated Pressure gives spatial representation
-    spatial = np.add.accumulate(np.abs(spatial), axis = 0)
-    spatial = np.sum(spatial, axis = 0)
-
-    # 45 mm x 30 mm
-    scaled_spatial_img = resize(spatial, (450, 300))
-
-    # Smoothening using Gaussian filter
-    # Doing here only for the purpose of calculating center and rotation angle
-    # Will be actually applied on output after translation and rotation
-    processed_spatial = scipy.ndimage.gaussian_filter(scaled_spatial_img, sigma = 14)
-
-    front = processed_spatial[:225]
-    heel = processed_spatial[225:]
-
-    front_max = np.unravel_index(np.argmax(front), front.shape)
-
-    heel_max = np.unravel_index(np.argmax(heel), heel.shape)
-    heel_max = (heel_max[0] + 225, heel_max[1])
-
-    req_center = (processed_spatial.shape[0] / 2, processed_spatial.shape[1] / 2)
-
-    angle = math.atan2(heel_max[0] - front_max[0], heel_max[1] - front_max[1])
-    center = ((front_max[0] + heel_max[0])/2, (front_max[1] + heel_max[1])/2)
-
-    dx = center[0] - req_center[0]
-    dy = center[1] - req_center[1]
-    req_angle = math.pi / 2
-    theta = req_angle - angle
-
-    transform_mat = np.array([
-        [math.cos(theta), -math.sin(theta), dx],
-        [math.sin(theta), math.cos(theta), dy]
-    ])
-
-    transformed = scipy.ndimage.affine_transform(scaled_spatial_img, transform_mat, mode='constant')
-
-    transformed = scipy.ndimage.gaussian_filter(transformed, sigma = 14)
-    
-    transformed = resize(transformed, (88, 44))
-    
-    return transformed
-    
-def process_footsteps(mat):
+def prepare_data(mat):
     # Left footstep
-    dataL = process_footstep(mat['dataL'])
-
+    dataL = foot_reshape(mat['dataL'])
     # Right footstep
-    dataR = process_footstep(mat['dataR'])
+    dataR = foot_reshape(mat['dataR'])
     
-    spatial = np.append(dataL, dataR, axis = 1)
-    
-    spatial_max = np.max(spatial)
+    return (dataL, dataR)
 
-    # Scale to [0, 1]
-    spatial /= spatial_max
+def calGRF(data):
+    tme = len(data)
+    height = len(data[0])
+    breadth = len(data[0][1])
+    grf = data.copy()
+    #grf = np.abs(data).copy()    
+    for t in range(1, tme):
+        for h in range(height):
+            for b in range(breadth):
+                grf[t][h][b]+=grf[t-1][h][b]
     
-    return spatial
+    return grf
+
+def max_index_in_range(arr, start_i, end_i):
+    x, y = start_i, 0
+    m = len(arr[0])
+    for i in range(start_i, end_i):
+        for j in range(m):
+            if(abs(arr[i][j]) > abs(arr[x][y])):
+                x, y = i, j
+    return (x, y)
+
+def rotate_image(img):
+    x1, y1 = max_index_in_range(img, 0, len(img)//2)
+    x2, y2 = max_index_in_range(img, len(img)//2, len(img))
+    theta = (math.atan2(y2 - y1, x2 - x1) * 180) / math.pi
+    return scipy.ndimage.rotate(img, -theta, reshape=True)
+
+def shift_image(img):
+    x1, y1 = max_index_in_range(img, 0, len(img)//2)
+    x2, y2 = max_index_in_range(img, len(img)//2, len(img))
+    dx = (x1 + x2) / 2 - len(img) / 2
+    dy = (y1 + y2) / 2 - len(img[0]) / 2
+    
+    return scipy.ndimage.shift(img, (-dx, -dy))
+
+def process_foot(data):
+    Tmax = 1600
+    data = data[:Tmax]
+    
+    grf = calGRF(data)
+    spatial = np.sum(grf, axis = 0)
+    scaled_spatial = resize(spatial, (450, 300))
+    rotated = rotate_image(scaled_spatial)
+    shifted = shift_image(rotated)
+    processed = scipy.ndimage.gaussian_filter(shifted, sigma = 14)
+    processed = resize(processed, (450, 300))
+    return processed    
+
+def process_matlab(mat):
+    dataL, dataR = prepare_data(mat)
+    footL, footR = process_foot(dataL), process_foot(dataR)    
+    processed = np.append(footL, footR, axis = 1)
+    processed /= np.max(np.abs(processed))
+    processed = resize(processed, (88, 88))
+    return processed
