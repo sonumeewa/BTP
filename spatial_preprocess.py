@@ -50,7 +50,7 @@ def process_footstep(arr):
         [math.sin(theta), math.cos(theta), dy]
     ])
 
-    transformed = scipy.ndimage.affine_transform(scaled_spatial_img, transform_mat)
+    transformed = scipy.ndimage.affine_transform(scaled_spatial_img, transform_mat, mode='constant')
 
     transformed = scipy.ndimage.gaussian_filter(transformed, sigma = 14)
     
