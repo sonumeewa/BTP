@@ -33,6 +33,7 @@ def calGRF(data):
 
 def cal_theta(img):
     img = np.sum(img,axis=0)
+    img = resize(img, (450, 300))
     x1, y1 = max_index_in_range(img, 0, len(img)//2)
     x2, y2 = max_index_in_range(img, len(img)//2, len(img))
     dx = (x1 + x2) / 2 - len(img) / 2
